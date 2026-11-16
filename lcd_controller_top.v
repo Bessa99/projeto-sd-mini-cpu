@@ -20,8 +20,6 @@ module lcd_controller_top (
     input  wire [2:0]  op_code,
     input  wire [3:0]  dest_reg,
     input  wire [15:0] value,
-    input  wire        show_reg,
-    input  wire        init_screen,
 
     // Saídas para o LCD
     output wire  [7:0] lcd_data,
@@ -41,7 +39,7 @@ module lcd_controller_top (
 
     lcd_init_hd44780 lcd_init (
         .clk      (clk),
-        .lcd_on   (lcd_on),
+        .lcd_on   (1'b1),
         .done     (init_done),
         .lcd_data (init_data),
         .lcd_rs   (init_rs),
@@ -65,17 +63,24 @@ module lcd_controller_top (
     reg [127:0] fmt_line2;
     reg [79:0]  fmt_op_name;
 
+    reg show_reg = 1'b1;
+    reg init_screen = 1'b1;
+
     always @(*) begin
         case (op_code)
-            3'b000:  fmt_op_name = "LOAD      ";
-            3'b001:  fmt_op_name = "ADD       ";
-            3'b010:  fmt_op_name = "ADDI      ";
-            3'b011:  fmt_op_name = "SUB       ";
-            3'b100:  fmt_op_name = "SUBI      ";
-            3'b101:  fmt_op_name = "MUL       ";
-            3'b110:  fmt_op_name = "CLR       ";
-            3'b111:  fmt_op_name = "DPL       ";
-            default: fmt_op_name = "          ";
+            3'b000: fmt_op_name = "LOAD      "; 
+            3'b001: fmt_op_name = "ADD       "; 
+            3'b010: fmt_op_name = "ADDI      "; 
+            3'b011: fmt_op_name = "SUB       "; 
+            3'b100: fmt_op_name = "SUBI      "; 
+            3'b101: fmt_op_name = "MUL       "; 
+            3'b110: fmt_op_name = "CLR       "; 
+            3'b111: fmt_op_name = "DPL       "; 
+            default: fmt_op_name = "          "; 
+        endcase
+        case (op_code)
+            3'b110: show_reg = 0;
+            default: show_reg = 1;
         endcase
     end
 
@@ -93,8 +98,11 @@ module lcd_controller_top (
     wire [47:0] fmt_n_name = {fmt_negative ? "-" : "+", 8'h30 + fmt_n4, 8'h30 + fmt_n3, 8'h30 + fmt_n2, 8'h30 + fmt_n1, 8'h30 + fmt_n0};
 
     always @(*) begin
-        if (init_screen) begin
-            fmt_line1 = "----------[----]";
+        if (!lcd_on)begin 
+            fmt_line1 = "                ";
+            fmt_line2 = "                ";
+        end else if (init_screen) begin
+            fmt_line1 = "----      [----]";
             fmt_line2 = "          +00000";
         end else if (!show_reg) begin
             fmt_line1 = "CLR             ";
@@ -133,6 +141,7 @@ module lcd_controller_top (
     reg [31:0] delay_cnt, next_delay_cnt;
     reg [5:0]  step, next_step;  // vai de 0 a 33
     reg        start_write;
+    reg        last_lcd_on = 1'b0;
 
     reg [7:0] cur_data;
     reg       cur_rs;
@@ -156,27 +165,29 @@ module lcd_controller_top (
     // 1) BLOCO SEQUENCIAL: registra estado, contador e índice da mensagem
     // =======================================================================
     always @(posedge clk) begin
-        if (!lcd_on) begin
-            state      <= S_WAIT_INIT;
-            delay_cnt  <= 32'd0;
-            step           <= 6'd0;
+        // Guarda o estado do botão no ciclo anterior
+        last_lcd_on <= lcd_on; 
+
+        state      <= next_state;
+        delay_cnt  <= next_delay_cnt;
+        step       <= next_step;
+
+        // Reage a mudanças em vez de bloquear o funcionamento
+        if (state == S_WAIT_INIT && init_done) begin
+            pending_update <= 1'b1;      // Terminou de inicializar: desenha a tela inicial
+        end else if (lcd_on != last_lcd_on) begin
+            pending_update <= 1'b1;      // O botão mudou (ligou ou desligou): força a limpeza ou o menu!
+            if (lcd_on) init_screen <= 1'b1; // Se ligou agora, garante que volta para a tela inicial
+        end else if (update && state == S_IDLE && lcd_on) begin
+            pending_update <= 1'b1;      // Primeira instrução em diante (apenas se ligado)
+            init_screen    <= 1'b0;      
+        end else if (start_write) begin
             pending_update <= 1'b0;
-        end else begin
-            state      <= next_state;
-            delay_cnt  <= next_delay_cnt;
-            step      <= next_step;
+        end
 
-            // Memoriza pedido de update se estiver livre
-            if (update && state == S_IDLE)
-                pending_update <= 1'b1;
-            else if (start_write)
-                pending_update <= 1'b0;
-
-            // Tira a foto dos dados
-            if (start_write) begin
-                buf_line1 <= fmt_line1;
-                buf_line2 <= fmt_line2;
-            end
+        if (start_write) begin
+            buf_line1 <= fmt_line1;
+            buf_line2 <= fmt_line2;
         end
     end
 
