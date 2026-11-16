@@ -11,13 +11,13 @@
 // ---------------------------------------------------------------------------
 module lcd_init_hd44780 (
     input  wire       clk,
-    input  wire       lcd_on,
+    input  wire       lcd_on, // substitiu o rst e o start (0 = parado e zerado) e (1 = modulo rodando)
     output reg        done,
 
     output reg  [7:0] lcd_data,
-    output reg        lcd_rs,
+    output reg        lcd_rs, // 0 == comando e 1 == letra 
     output reg        lcd_rw,
-    output reg        lcd_e
+    output reg        lcd_e // enable 
 );
 
     // -----------------------------------------------------------------------
@@ -44,12 +44,12 @@ module lcd_init_hd44780 (
     // Estados da FSM
     // -----------------------------------------------------------------------
     localparam [2:0]
-        S_IDLE       = 3'd0,
-        S_POWER_WAIT = 3'd1,
-        S_SETUP      = 3'd2,
-        S_PULSE      = 3'd3,
-        S_WAIT       = 3'd4,
-        S_DONE       = 3'd5;
+        S_IDLE       = 3'd0, // desligado 
+        S_POWER_WAIT = 3'd1, // esperando 15ms
+        S_SETUP      = 3'd2, // colocando os comandos nos fios 
+        S_PULSE      = 3'd3, // lcd_e = 1
+        S_WAIT       = 3'd4, // esperando o lcd processar 
+        S_DONE       = 3'd5; // terminou os 4 comandos 
 
     reg [2:0]  state, next_state;
     reg [31:0] delay_cnt, next_delay_cnt;
@@ -63,7 +63,6 @@ module lcd_init_hd44780 (
     reg [7:0]  cmd_rom       [0:NUM_CMDS-1];
     reg [31:0] cmd_delay_rom [0:NUM_CMDS-1];
 
-    integer i;
     initial begin
         // Comandos
         cmd_rom[0] = CMD_FUNCTION_SET;
@@ -198,11 +197,9 @@ module lcd_init_hd44780 (
 
         case (state)
             S_IDLE: begin
-                // tudo inativo
             end
 
             S_POWER_WAIT: begin
-                // só espera, sem gerar comando
             end
 
             // Em SETUP, PULSE e WAIT, sempre estamos trabalhando
