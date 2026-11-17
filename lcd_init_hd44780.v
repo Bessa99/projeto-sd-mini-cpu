@@ -35,10 +35,11 @@ module lcd_init_hd44780 (
     // Temporizações (ajustar conforme clock real)
     // Exemplo: clock de 50 MHz (20 ns)
     // -----------------------------------------------------------------------
-    localparam [31:0] DELAY_POWER_ON  = 32'd750_000; // ~15 ms
+    localparam [31:0] DELAY_POWER_ON  = 32'd2_500_000; // ~50 ms
     localparam [31:0] DELAY_STD_CMD   = 32'd2_000;   // ~40 us (com folga)
     localparam [31:0] DELAY_CLEAR_CMD = 32'd90_000;  // ~1,8 ms
     localparam [31:0] DELAY_PULSE_E   = 32'd50;      // ~1 us
+    localparam [31:0] DELAY_SETUP     = 32'd50;
 
     // -----------------------------------------------------------------------
     // Estados da FSM
@@ -121,6 +122,7 @@ module lcd_init_hd44780 (
                     next_delay_cnt = delay_cnt - 1;
                 end else begin
                     next_state     = S_SETUP;
+                    next_delay_cnt = DELAY_SETUP;
                 end
             end
 
@@ -130,10 +132,14 @@ module lcd_init_hd44780 (
             // ---------------------------------------------------------------
             S_SETUP: begin
                 if (cmd_idx < NUM_CMDS) begin
-                    next_state     = S_PULSE;
-                    next_delay_cnt = DELAY_PULSE_E;
+                    if (delay_cnt > 0) begin
+                        next_delay_cnt = delay_cnt - 1;
+                    end else begin
+                        next_state     = S_PULSE;
+                        next_delay_cnt = DELAY_PULSE_E;
+                    end
                 end else begin
-                    next_state = S_DONE; // todos os comandos enviados
+                    next_state = S_DONE; 
                 end
             end
 
@@ -160,6 +166,7 @@ module lcd_init_hd44780 (
                     // avança para o próximo comando
                     next_cmd_idx = cmd_idx + 1;
                     next_state   = S_SETUP;
+                    next_delay_cnt = DELAY_SETUP;
                 end
             end
 

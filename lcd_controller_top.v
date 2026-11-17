@@ -39,7 +39,7 @@ module lcd_controller_top (
 
     lcd_init_hd44780 lcd_init (
         .clk      (clk),
-        .lcd_on   (1'b1),
+        .lcd_on   (lcd_on),
         .done     (init_done),
         .lcd_data (init_data),
         .lcd_rs   (init_rs),
@@ -126,6 +126,7 @@ module lcd_controller_top (
     // Exemplo para 50 MHz:
     localparam [31:0] DELAY_WRITE = 32'd2000; // ~40 us
     localparam [31:0] DELAY_PULSE = 32'd50;   // ~1 us
+    localparam [31:0] DELAY_SETUP = 32'd50;
 
     // -----------------------------------------------------------------------
     // Estados da FSM principal
@@ -164,23 +165,22 @@ module lcd_controller_top (
     // =======================================================================
     // 1) BLOCO SEQUENCIAL: registra estado, contador e índice da mensagem
     // =======================================================================
+    reg last_init_done = 1'b0;
+
     always @(posedge clk) begin
-        // Guarda o estado do botão no ciclo anterior
-        last_lcd_on <= lcd_on; 
+        last_init_done <= init_done;
+        state     <= next_state;
+        delay_cnt <= next_delay_cnt;
+        step      <= next_step;
 
-        state      <= next_state;
-        delay_cnt  <= next_delay_cnt;
-        step       <= next_step;
-
-        // Reage a mudanças em vez de bloquear o funcionamento
-        if (state == S_WAIT_INIT && init_done) begin
-            pending_update <= 1'b1;      // Terminou de inicializar: desenha a tela inicial
-        end else if (lcd_on != last_lcd_on) begin
-            pending_update <= 1'b1;      // O botão mudou (ligou ou desligou): força a limpeza ou o menu!
-            if (lcd_on) init_screen <= 1'b1; // Se ligou agora, garante que volta para a tela inicial
-        end else if (update && state == S_IDLE && lcd_on) begin
-            pending_update <= 1'b1;      // Primeira instrução em diante (apenas se ligado)
-            init_screen    <= 1'b0;      
+        if (!init_done) begin
+            pending_update <= 1'b0;   // LCD desligado/inicializando: nada a desenhar
+            init_screen    <= 1'b1;   // próxima tela é a inicial
+        end else if (!last_init_done) begin
+            pending_update <= 1'b1;   // init acabou de terminar: desenha tela inicial
+        end else if (update) begin
+            pending_update <= 1'b1;
+            init_screen    <= 1'b0;
         end else if (start_write) begin
             pending_update <= 1'b0;
         end
@@ -201,27 +201,30 @@ module lcd_controller_top (
         next_step      = step;
         start_write    = 1'b0;
 
-        case (state)
-            // ---------------------------------------------------------------
-            // Espera a inicialização do LCD ser concluída
-            // ---------------------------------------------------------------
-            S_WAIT_INIT: begin
-                if (init_done) begin
-                    next_state     = S_IDLE;
-                end
-            end
+        if (!init_done) begin
+            next_state     = S_WAIT_INIT;
+            next_step      = 6'd0;
+            next_delay_cnt = 32'd0;
+        end 
+        else case (state)
+            S_WAIT_INIT: next_state = S_IDLE;
 
             S_IDLE: begin
                 if (pending_update) begin
                     start_write = 1'b1;
                     next_step   = 6'd0;
                     next_state  = S_PREPARE;
+                    next_delay_cnt = DELAY_SETUP;
                 end
             end
 
             S_PREPARE: begin
-                next_delay_cnt = DELAY_PULSE;
-                next_state     = S_PULSE_E;
+                if (delay_cnt > 0) begin
+                    next_delay_cnt = delay_cnt - 1;
+                end else begin
+                    next_delay_cnt = DELAY_PULSE;
+                    next_state     = S_PULSE_E;
+                end
             end
 
             // ---------------------------------------------------------------
@@ -248,6 +251,7 @@ module lcd_controller_top (
                     end else begin
                         next_step  = step + 6'd1;
                         next_state = S_PREPARE;
+                        next_delay_cnt = DELAY_SETUP;
                     end
                 end
             end

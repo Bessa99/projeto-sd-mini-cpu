@@ -34,7 +34,7 @@ module button_handler(
 
     always @(posedge clk)begin
         last_button_state <= stable_button;
-        reg_pulse <= ~stable_button && last_button_state;
+        reg_pulse <= stable_button && ~last_button_state;
         end 
 
     assign pulse = reg_pulse;
